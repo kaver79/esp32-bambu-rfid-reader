@@ -147,3 +147,17 @@ anonymous browsing. No GitHub token is stored on the device.
 Writing RFID tags is still under development and can permanently consume or
 lock a tag. There is no warranty that a marketplace product matches its
 advertised chip generation.
+
+## Credits
+
+- [Bambu Research Group RFID Tag Guide](https://github.com/Bambu-Research-Group/RFID-Tag-Guide)
+  for documenting the Bambu Lab RFID format, key derivation, and tag research.
+- [Bambu Lab RFID Library](https://github.com/queengooborg/Bambu-Lab-RFID-Library)
+  and its contributors for collecting and organizing community tag dumps and
+  filament metadata.
+- [Adafruit PN532](https://github.com/adafruit/Adafruit-PN532) for the PN532
+  Arduino library used by the primary reader build.
+- [MFRC522](https://github.com/miguelbalboa/rfid) for optional RC522 read-only
+  compatibility.
+- The Arduino, Espressif, and PlatformIO communities for the ESP32 framework,
+  networking, OTA, and build tooling used by this project.
