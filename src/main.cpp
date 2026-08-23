@@ -430,6 +430,11 @@ static void sendJson(int code, const String &json) {
 
 static void handleStatus() {
   const bool connected = WiFi.status() == WL_CONNECTED;
+  const bool tagPresent = tagAvailable && autoTagLatched &&
+                          memcmp(lastUid, autoTagUid, sizeof(lastUid)) == 0;
+  const bool readerArmed = jobType == JobType::Scan ||
+                           (jobType == JobType::Idle && autoScanEnabled &&
+                            !autoTagLatched);
   String json = "{\"ok\":" + String(connected ? "true" : "false");
   json += ",\"message\":\"" + jsonEscape(connected ? "Reader ready" : "Connect Wi-Fi to browse the online library") + "\"";
   json += ",\"station\":\"" + jsonEscape(connected ? WiFi.SSID() : "disconnected") + "\"";
@@ -439,6 +444,9 @@ static void handleStatus() {
   json += ",\"jobOk\":" + String(jobSucceeded ? "true" : "false");
   json += ",\"job\":\"" + jsonEscape(jobMessage) + "\"";
   json += ",\"autoScan\":" + String(autoScanEnabled ? "true" : "false");
+  json += ",\"readerArmed\":" + String(readerArmed ? "true" : "false");
+  json += ",\"tagDetected\":" + String(autoTagLatched ? "true" : "false");
+  json += ",\"tagPresent\":" + String(tagPresent ? "true" : "false");
   json += ",\"dumpLoaded\":" + String(libraryDumpLoaded ? "true" : "false");
   if (libraryDumpLoaded) {
     json += ",\"dumpName\":\"" + jsonEscape(libraryDumpName) + "\"";

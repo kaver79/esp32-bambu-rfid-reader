@@ -10,7 +10,8 @@ The web UI provides:
 
 - timed PN532 scans and decoded filament information;
 - automatic periodic scans that read each presented UID once and re-arm after
-  tag removal, with a persisted UI enable/disable control;
+  tag removal, with a persisted UI enable/disable control and clear scanning,
+  tag-detected, and last-scan indicators;
 - automatic GitHub library enrichment showing exact-UID or variant matches,
   official material and color names, filament codes, availability, and a
   direct source link;
