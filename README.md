@@ -1,10 +1,20 @@
 # ESP32 Bambu RFID Workbench
 
 This firmware turns an ESP32 and PN532 into a local web-based Bambu Lab RFID
-reader and guarded FUID clone writer. It derives Bambu's public per-sector keys,
-decodes genuine filament tags, downloads exact signed dumps from the
-[Bambu Lab RFID Library](https://github.com/queengooborg/Bambu-Lab-RFID-Library),
-and writes compatible unused FUID tags.
+reader and research workbench. It derives Bambu's public per-sector keys,
+decodes genuine filament tags, and browses exact signed dumps from the
+[Bambu Lab RFID Library](https://github.com/queengooborg/Bambu-Lab-RFID-Library).
+
+## Project status
+
+**Read-only mode is the current working mode.** Reading, automatic tag
+detection, decoded spool information, GitHub library enrichment, and dump
+downloads are working well on the PN532 setup used for this project.
+
+**The RFID write flow is not finished.** The repository contains experimental
+write code and UI scaffolding, but it has not completed end-to-end hardware and
+Bambu Lab printer validation. Do not rely on it to create usable tags, and do
+not test it with a tag that you cannot afford to permanently consume.
 
 The web UI provides:
 
@@ -19,11 +29,15 @@ The web UI provides:
 - download of a complete locally read 1 KiB dump;
 - live material/color/UID navigation of the GitHub tag library;
 - ESP32-side HTTPS download and validation of selected 1,024-byte dumps;
-- guarded, explicitly confirmed FUID writing followed by full readable-content
-  verification;
+- unfinished experimental FUID write scaffolding, which is not currently a
+  supported workflow;
 - Wi-Fi provisioning stored in ESP32 Preferences/NVS.
 
-## Important write limitations
+## Write flow status and limitations
+
+The write controls are experimental and the write workflow is not considered
+complete or ready for normal use. The descriptions below document the intended
+safety boundaries; they are not a claim that writing has been validated.
 
 Changing a material, color, or any other signed field invalidates Bambu's
 RSA-2048 signature. This firmware therefore clones complete, unmodified signed
@@ -66,8 +80,8 @@ pio run -e pn532 -t upload
 pio device monitor -b 115200
 ```
 
-The optional `rc522` environment still builds and supports reading, but the
-write endpoint reports that writing requires the PN532 build.
+The optional `rc522` environment still builds and supports reading. Writing
+remains unfinished and unsupported on all builds.
 
 ## Firmware updates over Wi-Fi
 
@@ -121,16 +135,15 @@ The browser uses GitHub's public Contents API to navigate the catalog, and the
 ESP32 downloads the selected binary from GitHub. GitHub may rate-limit heavy
 anonymous browsing. No GitHub token is stored on the device.
 
-## Safe workflow
+## Read-only workflow
 
-1. Read a genuine tag first and confirm PN532 positioning is reliable.
-2. Browse to a library material, color, UID, and select its `-dump.bin` file.
-3. Confirm the displayed source UID.
-4. Remove every other tag from the PN532 antenna.
-5. Place one new FUID showing factory UID `AA55C396`.
-6. Type `WRITE`, accept the final confirmation, and keep the tag still until
-   the UI reports successful verification.
+1. Open the web UI and leave **Auto-scan** enabled.
+2. Keep the spool face flat over the PN532 and rotate it slowly as indicated.
+3. Stop when the UI reports that a tag was detected.
+4. Review the decoded tag and GitHub library information.
+5. Download the complete 1 KiB dump if needed.
+6. Remove the spool; the UI keeps the result clearly marked as **Last scan**.
 
-Writing RFID tags is experimental and can permanently consume or lock a tag.
-There is no warranty that a marketplace product matches its advertised chip
-generation.
+Writing RFID tags is still under development and can permanently consume or
+lock a tag. There is no warranty that a marketplace product matches its
+advertised chip generation.
