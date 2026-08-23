@@ -11,6 +11,9 @@ The web UI provides:
 - timed PN532 scans and decoded filament information;
 - automatic periodic scans that read each presented UID once and re-arm after
   tag removal, with a persisted UI enable/disable control;
+- automatic GitHub library enrichment showing exact-UID or variant matches,
+  official material and color names, filament codes, availability, and a
+  direct source link;
 - download of a complete locally read 1 KiB dump;
 - live material/color/UID navigation of the GitHub tag library;
 - ESP32-side HTTPS download and validation of selected 1,024-byte dumps;
