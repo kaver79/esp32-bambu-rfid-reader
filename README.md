@@ -27,6 +27,9 @@ The web UI provides:
   official material and color names, filament codes, availability, and a
   direct source link;
 - download of a complete locally read 1 KiB dump;
+- read-only inspection of blank FUID candidates: the UI reports eligibility
+  only when the factory UID is `AA55C396` and all 16 sectors authenticate with
+  the default factory key;
 - live material/color/UID navigation of the GitHub tag library;
 - ESP32-side HTTPS download and validation of selected 1,024-byte dumps;
 - unfinished experimental FUID write scaffolding, which is not currently a
@@ -47,6 +50,13 @@ Writing currently accepts only an unused FUID with factory UID `AA55C396`. It
 refuses all other UIDs. Block 0 is written last, after the other 63 blocks have
 succeeded, because changing the FUID is irreversible. Do not remove or move the
 tag during a write.
+
+When such a factory UID is scanned, the firmware performs a read-only
+eligibility inspection and shows how many of the 16 sectors accept the default
+factory key. A `16/16` result means only that the tag is a candidate for the
+unfinished FUID flow. It does not prove that the chip supports the required
+magic block-0 behavior, that a write will succeed, or that an AMS/AMS Lite will
+accept the result.
 
 UFUID is not written or sealed. Its Gen1/Gen4 magic wake-up and sealing sequence
 requires raw seven-bit commands that the standard Adafruit PN532 API does not

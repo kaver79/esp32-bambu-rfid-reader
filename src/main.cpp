@@ -29,6 +29,7 @@ static constexpr size_t DUMP_SIZE = BLOCK_COUNT * BLOCK_SIZE;
 static constexpr uint32_t JOB_TIMEOUT_MS = 15000;
 static constexpr uint32_t AUTO_SCAN_INTERVAL_MS = 350;
 static constexpr uint32_t TAG_REMOVAL_MS = 1200;
+static const uint8_t FUID_FACTORY_UID[4] = {0xAA, 0x55, 0xC3, 0x96};
 
 static uint8_t dumpData[BLOCK_COUNT][BLOCK_SIZE];
 static bool blockValid[BLOCK_COUNT];
@@ -55,6 +56,10 @@ static bool autoTagLatched = false;
 static uint8_t autoTagUid[4];
 static uint32_t autoNextScanAt = 0;
 static uint32_t autoLastSeenAt = 0;
+static bool writableCandidateAvailable = false;
+static bool writableCandidateReady = false;
+static uint8_t writableCandidateUid[4];
+static uint8_t writableCandidateSectors = 0;
 
 static const uint8_t BAMBU_SALT[16] = {
     0x9a, 0x75, 0x9c, 0xf2, 0xc4, 0xf7, 0xca, 0xff,
@@ -234,7 +239,57 @@ static size_t readAllBlocks(uint8_t keys[16][6], const uint8_t uid[4]) {
 }
 #endif
 
+// This is intentionally read-only. The factory UID and default keys make a tag
+// eligible for the unfinished FUID flow; they do not prove its magic commands
+// or compatibility with an AMS/AMS Lite.
+static bool inspectFactoryFuid(const uint8_t uid[4]) {
+  static uint8_t defaultKey[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+  uint8_t authenticatedSectors = 0;
+#if RFID_READER == READER_RC522
+  MFRC522::MIFARE_Key key;
+  memcpy(key.keyByte, defaultKey, sizeof(defaultKey));
+  for (uint8_t sector = 0; sector < 16; ++sector) {
+    if (reader.PCD_Authenticate(MFRC522::PICC_CMD_MF_AUTH_KEY_A, sector * 4,
+                                &key, &reader.uid) == MFRC522::STATUS_OK) {
+      ++authenticatedSectors;
+    }
+    reader.PCD_StopCrypto1();
+  }
+  reader.PICC_HaltA();
+#else
+  for (uint8_t sector = 0; sector < 16; ++sector) {
+    if (reader.mifareclassic_AuthenticateBlock(const_cast<uint8_t *>(uid), 4,
+                                                sector * 4, 0, defaultKey)) {
+      ++authenticatedSectors;
+    }
+  }
+#endif
+  memcpy(writableCandidateUid, uid, sizeof(writableCandidateUid));
+  writableCandidateAvailable = true;
+  writableCandidateSectors = authenticatedSectors;
+  writableCandidateReady = authenticatedSectors == 16;
+  tagAvailable = false;
+  if (writableCandidateReady) {
+    jobMessage = "Blank FUID candidate: all 16 sectors accept the factory key";
+  } else {
+    jobMessage = "Factory UID found, but only " + String(authenticatedSectors) +
+                 "/16 sectors accept the factory key";
+  }
+  Serial.print(F("FUID eligibility inspection: UID "));
+  printHex(uid, 4, 0);
+  Serial.print(F(", default-key sectors "));
+  Serial.print(authenticatedSectors);
+  Serial.println(F("/16 (read-only inspection)"));
+  return writableCandidateReady;
+}
+
 static bool readCurrentTag(const uint8_t uid[4]) {
+  if (memcmp(uid, FUID_FACTORY_UID, sizeof(FUID_FACTORY_UID)) == 0) {
+    return inspectFactoryFuid(uid);
+  }
+  writableCandidateAvailable = false;
+  writableCandidateReady = false;
+  writableCandidateSectors = 0;
   uint8_t keys[16][6];
   if (!deriveBambuKeyA(uid, keys)) { jobMessage = "Key derivation failed"; return false; }
   const size_t blocks = readAllBlocks(keys, uid);
@@ -353,7 +408,6 @@ static bool readableContentMatchesLibrary() {
 }
 
 static bool writeExactFuid(String &error) {
-  static const uint8_t FUID_FACTORY_UID[4] = {0xAA, 0x55, 0xC3, 0x96};
   static uint8_t defaultKey[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
   uint8_t targetUid[4] = {};
   bool found = false;
@@ -430,8 +484,12 @@ static void sendJson(int code, const String &json) {
 
 static void handleStatus() {
   const bool connected = WiFi.status() == WL_CONNECTED;
-  const bool tagPresent = tagAvailable && autoTagLatched &&
-                          memcmp(lastUid, autoTagUid, sizeof(lastUid)) == 0;
+  const bool decodedTagPresent = tagAvailable && autoTagLatched &&
+                                 memcmp(lastUid, autoTagUid, sizeof(lastUid)) == 0;
+  const bool writableCandidatePresent = writableCandidateAvailable && autoTagLatched &&
+                                        memcmp(writableCandidateUid, autoTagUid,
+                                               sizeof(writableCandidateUid)) == 0;
+  const bool tagPresent = decodedTagPresent || writableCandidatePresent;
   const bool readerArmed = jobType == JobType::Scan ||
                            (jobType == JobType::Idle && autoScanEnabled &&
                             !autoTagLatched);
@@ -453,6 +511,16 @@ static void handleStatus() {
     json += ",\"dumpUid\":\"" + hexString(libraryDump, 4) + "\"";
   }
   if (tagAvailable) json += ",\"tag\":" + decodedTagJson(&dumpData[0][0], lastUid, blockValid);
+  if (writableCandidateAvailable) {
+    json += ",\"writableTarget\":{\"uid\":\"" + hexString(writableCandidateUid, 4) + "\"";
+    json += ",\"ready\":" + String(writableCandidateReady ? "true" : "false");
+    json += ",\"authenticatedSectors\":" + String(writableCandidateSectors);
+    json += ",\"expectedSectors\":16";
+    json += ",\"classification\":\"Unused FUID candidate\"";
+    json += ",\"status\":\"" + String(writableCandidateReady
+        ? "Eligible candidate for the unfinished write flow"
+        : "Not eligible for the FUID write flow") + "\"}";
+  }
   json += "}";
   sendJson(200, json);
 }
