@@ -30,6 +30,8 @@ The web UI provides:
 - read-only inspection of blank FUID candidates: the UI reports eligibility
   only when the factory UID is `AA55C396` and all 16 sectors authenticate with
   the default factory key;
+- detection details for other four-byte UID tags, including their UID and
+  default-key sector count, while keeping them ineligible for writing;
 - live material/color/UID navigation of the GitHub tag library;
 - ESP32-side HTTPS download and validation of selected 1,024-byte dumps;
 - unfinished experimental FUID write scaffolding, which is not currently a
@@ -57,6 +59,12 @@ factory key. A `16/16` result means only that the tag is a candidate for the
 unfinished FUID flow. It does not prove that the chip supports the required
 magic block-0 behavior, that a write will succeed, or that an AMS/AMS Lite will
 accept the result.
+
+Other factory-keyed MIFARE Classic tags are still shown in the UI so an
+unsupported card is not mistaken for an antenna failure. A random or different
+UID—even with `16/16` default-key sectors—is not enough to identify the magic
+generation and is rejected by the write flow. Use a Proxmark3 `hf mf info` test
+to distinguish CUID, Gen1, Gen4, and other magic capabilities without guessing.
 
 UFUID is not written or sealed. Its Gen1/Gen4 magic wake-up and sealing sequence
 requires raw seven-bit commands that the standard Adafruit PN532 API does not

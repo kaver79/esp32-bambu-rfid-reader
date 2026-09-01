@@ -58,6 +58,7 @@ static uint32_t autoNextScanAt = 0;
 static uint32_t autoLastSeenAt = 0;
 static bool writableCandidateAvailable = false;
 static bool writableCandidateReady = false;
+static bool writableCandidateFactoryUid = false;
 static uint8_t writableCandidateUid[4];
 static uint8_t writableCandidateSectors = 0;
 
@@ -242,7 +243,7 @@ static size_t readAllBlocks(uint8_t keys[16][6], const uint8_t uid[4]) {
 // This is intentionally read-only. The factory UID and default keys make a tag
 // eligible for the unfinished FUID flow; they do not prove its magic commands
 // or compatibility with an AMS/AMS Lite.
-static bool inspectFactoryFuid(const uint8_t uid[4]) {
+static bool inspectBlankTarget(const uint8_t uid[4]) {
   static uint8_t defaultKey[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
   uint8_t authenticatedSectors = 0;
 #if RFID_READER == READER_RC522
@@ -267,15 +268,21 @@ static bool inspectFactoryFuid(const uint8_t uid[4]) {
   memcpy(writableCandidateUid, uid, sizeof(writableCandidateUid));
   writableCandidateAvailable = true;
   writableCandidateSectors = authenticatedSectors;
-  writableCandidateReady = authenticatedSectors == 16;
+  writableCandidateFactoryUid =
+      memcmp(uid, FUID_FACTORY_UID, sizeof(FUID_FACTORY_UID)) == 0;
+  writableCandidateReady = writableCandidateFactoryUid && authenticatedSectors == 16;
   tagAvailable = false;
   if (writableCandidateReady) {
     jobMessage = "Blank FUID candidate: all 16 sectors accept the factory key";
+  } else if (authenticatedSectors == 16) {
+    jobMessage = "Factory-keyed tag detected, but UID " + hexString(uid, 4) +
+                 " is not the supported FUID factory UID AA55C396";
   } else {
-    jobMessage = "Factory UID found, but only " + String(authenticatedSectors) +
-                 "/16 sectors accept the factory key";
+    jobMessage = "UID " + hexString(uid, 4) + ": " +
+                 String(authenticatedSectors) +
+                 "/16 sectors accept the factory key; write eligibility not established";
   }
-  Serial.print(F("FUID eligibility inspection: UID "));
+  Serial.print(F("Blank target inspection: UID "));
   printHex(uid, 4, 0);
   Serial.print(F(", default-key sectors "));
   Serial.print(authenticatedSectors);
@@ -285,15 +292,26 @@ static bool inspectFactoryFuid(const uint8_t uid[4]) {
 
 static bool readCurrentTag(const uint8_t uid[4]) {
   if (memcmp(uid, FUID_FACTORY_UID, sizeof(FUID_FACTORY_UID)) == 0) {
-    return inspectFactoryFuid(uid);
+    return inspectBlankTarget(uid);
   }
   writableCandidateAvailable = false;
   writableCandidateReady = false;
+  writableCandidateFactoryUid = false;
   writableCandidateSectors = 0;
   uint8_t keys[16][6];
   if (!deriveBambuKeyA(uid, keys)) { jobMessage = "Key derivation failed"; return false; }
   const size_t blocks = readAllBlocks(keys, uid);
   if (blocks != BLOCK_COUNT) {
+#if RFID_READER == READER_PN532
+    // A failed Bambu authentication can leave the target unusable for the next
+    // key attempt. Reselect it before the read-only factory-key inspection.
+    reader.SAMConfig();
+    delay(20);
+    uint8_t retryUid[4];
+    if (detectTag(retryUid, 300) && memcmp(retryUid, uid, sizeof(retryUid)) == 0) {
+      return inspectBlankTarget(uid);
+    }
+#endif
     jobMessage = "Read " + String(blocks) + "/64 blocks; keep the tag centered and retry";
     return false;
   }
@@ -504,6 +522,7 @@ static void handleStatus() {
   json += ",\"autoScan\":" + String(autoScanEnabled ? "true" : "false");
   json += ",\"readerArmed\":" + String(readerArmed ? "true" : "false");
   json += ",\"tagDetected\":" + String(autoTagLatched ? "true" : "false");
+  if (autoTagLatched) json += ",\"detectedUid\":\"" + hexString(autoTagUid, 4) + "\"";
   json += ",\"tagPresent\":" + String(tagPresent ? "true" : "false");
   json += ",\"dumpLoaded\":" + String(libraryDumpLoaded ? "true" : "false");
   if (libraryDumpLoaded) {
@@ -514,9 +533,15 @@ static void handleStatus() {
   if (writableCandidateAvailable) {
     json += ",\"writableTarget\":{\"uid\":\"" + hexString(writableCandidateUid, 4) + "\"";
     json += ",\"ready\":" + String(writableCandidateReady ? "true" : "false");
+    json += ",\"factoryUidMatches\":" +
+            String(writableCandidateFactoryUid ? "true" : "false");
     json += ",\"authenticatedSectors\":" + String(writableCandidateSectors);
     json += ",\"expectedSectors\":16";
-    json += ",\"classification\":\"Unused FUID candidate\"";
+    json += ",\"classification\":\"" + String(writableCandidateReady
+        ? "Unused FUID candidate"
+        : (writableCandidateSectors == 16
+            ? "Factory-keyed MIFARE Classic tag"
+            : "Unsupported or locked MIFARE Classic tag")) + "\"";
     json += ",\"status\":\"" + String(writableCandidateReady
         ? "Eligible candidate for the unfinished write flow"
         : "Not eligible for the FUID write flow") + "\"}";
