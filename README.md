@@ -32,6 +32,8 @@ The web UI provides:
   the default factory key;
 - detection details for other four-byte UID tags, including their UID and
   default-key sector count, while keeping them ineligible for writing;
+- safe detection and UI reporting for ISO14443A tags with non-four-byte UIDs,
+  without passing a too-small UID buffer to the PN532 library;
 - live material/color/UID navigation of the GitHub tag library;
 - ESP32-side HTTPS download and validation of selected 1,024-byte dumps;
 - unfinished experimental FUID write scaffolding, which is not currently a
@@ -89,6 +91,11 @@ positions vary by board.
 
 Use 3.3 V logic and keep one label centered over the antenna. Pin definitions
 are in `include/config.h`.
+
+Very small or bare sticker/coin antennas may detune when pressed directly
+against the PN532 board. If a known 13.56 MHz ISO14443A tag produces no UID at
+all, try a non-metallic 5–10 mm spacer and rotate the tag slowly. The PN532
+firmware cannot detect 125 kHz LF tags, UHF tags, or non-ISO14443A NFC protocols.
 
 ## Build and upload
 

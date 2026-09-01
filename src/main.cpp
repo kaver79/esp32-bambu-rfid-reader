@@ -61,6 +61,10 @@ static bool writableCandidateReady = false;
 static bool writableCandidateFactoryUid = false;
 static uint8_t writableCandidateUid[4];
 static uint8_t writableCandidateSectors = 0;
+static bool unsupportedUidAvailable = false;
+static uint8_t unsupportedUid[10];
+static uint8_t unsupportedUidLength = 0;
+static uint32_t unsupportedUidLastSeenAt = 0;
 
 static const uint8_t BAMBU_SALT[16] = {
     0x9a, 0x75, 0x9c, 0xf2, 0xc4, 0xf7, 0xca, 0xff,
@@ -108,6 +112,17 @@ static String hexString(const uint8_t *bytes, size_t length) {
     result += HEX_DIGITS[bytes[i] & 0x0f];
   }
   return result;
+}
+
+static void recordUnsupportedUid(const uint8_t *uid, uint8_t length) {
+  unsupportedUidLength = min(length, static_cast<uint8_t>(sizeof(unsupportedUid)));
+  memcpy(unsupportedUid, uid, unsupportedUidLength);
+  unsupportedUidAvailable = true;
+  unsupportedUidLastSeenAt = millis();
+  jobSucceeded = false;
+  jobMessage = "Detected " + String(length) + "-byte UID " +
+               hexString(uid, unsupportedUidLength) +
+               "; Bambu MIFARE Classic tags require a four-byte UID";
 }
 
 static void printHex(const uint8_t *bytes, size_t length, char separator = ' ') {
@@ -188,7 +203,12 @@ static void printDecodedData(const uint8_t uid[4]) {
 static bool detectTag(uint8_t uid[4], uint16_t timeoutMs = 50) {
   (void)timeoutMs;
   if (!reader.PICC_IsNewCardPresent() || !reader.PICC_ReadCardSerial()) return false;
-  if (reader.uid.size != 4) { reader.PICC_HaltA(); return false; }
+  if (reader.uid.size != 4) {
+    recordUnsupportedUid(reader.uid.uidByte, reader.uid.size);
+    reader.PICC_HaltA();
+    return false;
+  }
+  unsupportedUidAvailable = false;
   memcpy(uid, reader.uid.uidByte, 4);
   return true;
 }
@@ -218,9 +238,17 @@ static size_t readAllBlocks(uint8_t keys[16][6], const uint8_t uid[4]) {
 }
 #else
 static bool detectTag(uint8_t uid[4], uint16_t timeoutMs = 50) {
+  uint8_t detectedUid[10] = {};
   uint8_t uidLength = 0;
-  if (!reader.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength, timeoutMs)) return false;
-  return uidLength == 4;
+  if (!reader.readPassiveTargetID(PN532_MIFARE_ISO14443A, detectedUid,
+                                  &uidLength, timeoutMs)) return false;
+  if (uidLength != 4) {
+    recordUnsupportedUid(detectedUid, uidLength);
+    return false;
+  }
+  unsupportedUidAvailable = false;
+  memcpy(uid, detectedUid, 4);
+  return true;
 }
 
 static size_t readAllBlocks(uint8_t keys[16][6], const uint8_t uid[4]) {
@@ -502,15 +530,18 @@ static void sendJson(int code, const String &json) {
 
 static void handleStatus() {
   const bool connected = WiFi.status() == WL_CONNECTED;
+  const bool unsupportedTagPresent = unsupportedUidAvailable &&
+      millis() - unsupportedUidLastSeenAt < TAG_REMOVAL_MS;
   const bool decodedTagPresent = tagAvailable && autoTagLatched &&
                                  memcmp(lastUid, autoTagUid, sizeof(lastUid)) == 0;
   const bool writableCandidatePresent = writableCandidateAvailable && autoTagLatched &&
                                         memcmp(writableCandidateUid, autoTagUid,
                                                sizeof(writableCandidateUid)) == 0;
-  const bool tagPresent = decodedTagPresent || writableCandidatePresent;
+  const bool tagPresent = decodedTagPresent || writableCandidatePresent ||
+                          unsupportedTagPresent;
   const bool readerArmed = jobType == JobType::Scan ||
                            (jobType == JobType::Idle && autoScanEnabled &&
-                            !autoTagLatched);
+                            !autoTagLatched && !unsupportedTagPresent);
   String json = "{\"ok\":" + String(connected ? "true" : "false");
   json += ",\"message\":\"" + jsonEscape(connected ? "Reader ready" : "Connect Wi-Fi to browse the online library") + "\"";
   json += ",\"station\":\"" + jsonEscape(connected ? WiFi.SSID() : "disconnected") + "\"";
@@ -521,7 +552,8 @@ static void handleStatus() {
   json += ",\"job\":\"" + jsonEscape(jobMessage) + "\"";
   json += ",\"autoScan\":" + String(autoScanEnabled ? "true" : "false");
   json += ",\"readerArmed\":" + String(readerArmed ? "true" : "false");
-  json += ",\"tagDetected\":" + String(autoTagLatched ? "true" : "false");
+  json += ",\"tagDetected\":" +
+          String((autoTagLatched || unsupportedTagPresent) ? "true" : "false");
   if (autoTagLatched) json += ",\"detectedUid\":\"" + hexString(autoTagUid, 4) + "\"";
   json += ",\"tagPresent\":" + String(tagPresent ? "true" : "false");
   json += ",\"dumpLoaded\":" + String(libraryDumpLoaded ? "true" : "false");
@@ -530,6 +562,13 @@ static void handleStatus() {
     json += ",\"dumpUid\":\"" + hexString(libraryDump, 4) + "\"";
   }
   if (tagAvailable) json += ",\"tag\":" + decodedTagJson(&dumpData[0][0], lastUid, blockValid);
+  if (unsupportedUidAvailable) {
+    json += ",\"unsupportedTag\":{\"uid\":\"" +
+            hexString(unsupportedUid, unsupportedUidLength) + "\"";
+    json += ",\"uidLength\":" + String(unsupportedUidLength);
+    json += ",\"present\":" + String(unsupportedTagPresent ? "true" : "false");
+    json += ",\"reason\":\"Only four-byte UID MIFARE Classic 1K tags are supported\"}";
+  }
   if (writableCandidateAvailable) {
     json += ",\"writableTarget\":{\"uid\":\"" + hexString(writableCandidateUid, 4) + "\"";
     json += ",\"ready\":" + String(writableCandidateReady ? "true" : "false");
