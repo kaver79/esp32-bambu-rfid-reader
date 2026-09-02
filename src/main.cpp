@@ -303,8 +303,8 @@ static bool inspectBlankTarget(const uint8_t uid[4]) {
   if (writableCandidateReady) {
     jobMessage = "Blank FUID candidate: all 16 sectors accept the factory key";
   } else if (authenticatedSectors == 16) {
-    jobMessage = "Factory-keyed tag detected, but UID " + hexString(uid, 4) +
-                 " is not the supported FUID factory UID AA55C396";
+    jobMessage = "Likely CUID/rewritable tag " + hexString(uid, 4) +
+                 ": not compatible with the Bambu AMS write flow";
   } else {
     jobMessage = "UID " + hexString(uid, 4) + ": " +
                  String(authenticatedSectors) +
@@ -570,20 +570,27 @@ static void handleStatus() {
     json += ",\"reason\":\"Only four-byte UID MIFARE Classic 1K tags are supported\"}";
   }
   if (writableCandidateAvailable) {
+    const bool likelyCuid = !writableCandidateFactoryUid &&
+                            writableCandidateSectors == 16;
     json += ",\"writableTarget\":{\"uid\":\"" + hexString(writableCandidateUid, 4) + "\"";
     json += ",\"ready\":" + String(writableCandidateReady ? "true" : "false");
     json += ",\"factoryUidMatches\":" +
             String(writableCandidateFactoryUid ? "true" : "false");
+    json += ",\"likelyCuid\":" + String(likelyCuid ? "true" : "false");
+    json += ",\"likelyRewritable\":" + String(likelyCuid ? "true" : "false");
+    json += ",\"bambuCompatible\":false";
     json += ",\"authenticatedSectors\":" + String(writableCandidateSectors);
     json += ",\"expectedSectors\":16";
     json += ",\"classification\":\"" + String(writableCandidateReady
         ? "Unused FUID candidate"
-        : (writableCandidateSectors == 16
-            ? "Factory-keyed MIFARE Classic tag"
+        : (likelyCuid
+            ? "Likely CUID / rewritable tag"
             : "Unsupported or locked MIFARE Classic tag")) + "\"";
     json += ",\"status\":\"" + String(writableCandidateReady
         ? "Eligible candidate for the unfinished write flow"
-        : "Not eligible for the FUID write flow") + "\"}";
+        : (likelyCuid
+            ? "Rewritable, but not compatible with stock Bambu AMS/AMS Lite"
+            : "Not eligible for the FUID write flow")) + "\"}";
   }
   json += "}";
   sendJson(200, json);

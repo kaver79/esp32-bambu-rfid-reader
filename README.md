@@ -63,10 +63,12 @@ magic block-0 behavior, that a write will succeed, or that an AMS/AMS Lite will
 accept the result.
 
 Other factory-keyed MIFARE Classic tags are still shown in the UI so an
-unsupported card is not mistaken for an antenna failure. A random or different
-UID—even with `16/16` default-key sectors—is not enough to identify the magic
-generation and is rejected by the write flow. Use a Proxmark3 `hf mf info` test
-to distinguish CUID, Gen1, Gen4, and other magic capabilities without guessing.
+unsupported card is not mistaken for an antenna failure. A non-FUID UID with
+`16/16` default-key sectors is labeled **Likely CUID / rewritable** and clearly
+marked incompatible with stock AMS/AMS Lite. This is a conservative inference,
+not proof of the magic generation, and the write flow remains disabled. Use a
+Proxmark3 `hf mf info` test to distinguish CUID, Gen1, Gen4, and other magic
+capabilities without guessing.
 
 UFUID is not written or sealed. Its Gen1/Gen4 magic wake-up and sealing sequence
 requires raw seven-bit commands that the standard Adafruit PN532 API does not
