@@ -178,19 +178,24 @@ an arbitrary record into a newly signed black PLA record.
 
 Remove every other tag from the PN5180 field, then present one unused FUID.
 
-The **Writable tag inspection** must show all of the following:
+The first fast inspection checks only block 0. It should show:
 
 - UID: `AA55C396`.
 - Factory UID: `Matches AA55C396`.
-- Default-key sectors: `16 / 16`.
-- Detection: `Unused FUID candidate`.
-- Bambu write eligibility: `Eligible FUID candidate`.
+- Detection: `Possible unused FUID — validation required`.
+- Bambu write eligibility: `Full validation required`.
 - The badge says **Tag present**, not **Last scan**.
 
-Stop if any value differs. A UID that merely looks writable is not enough.
-The **Run full read-only preflight** and `TEST UID` controls belong to the
-separate CUID engineering test; they do not make a CUID suitable for a Bambu
-clone.
+Now select **Validate FUID (read-only)** and keep the tag still. After the
+complete preflight succeeds, the inspection must show `16 / 16`, **Unused FUID
+candidate**, and **Eligible for exact FUID cloning**. A blank FUID is not yet a
+Bambu-compatible tag; compatibility begins only after an exact signed dump is
+written and the complete readback succeeds.
+
+Stop if any value differs. A UID that merely looks writable is not enough. The
+separately displayed **Validate CUID (read-only)** and `TEST UID` controls are
+an engineering test for non-FUID CUID tags; they do not make a CUID suitable
+for a Bambu clone.
 
 ## Step 8: Program the FUID
 

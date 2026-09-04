@@ -139,8 +139,11 @@ use.
 
 The `pn5180` environment provides startup diagnostics, ISO14443A UID detection,
 a bounded read-only block-0 default-key probe, the guarded reversible CUID UID
-test, and exact FUID cloning. A separate **Run full read-only preflight** action
-reselects the same UID for every sector, authenticates all 16 sectors with Key
+test, and exact FUID cloning. For factory UID `AA55C396`, the UI first reports
+**Possible unused FUID — validation required** instead of treating the quick
+`1/16` probe as a final compatibility result. The dedicated **Validate FUID
+(read-only)** action reselects the same UID for every sector, authenticates all
+16 sectors with Key
 A `FFFFFFFFFFFF`, reads all 64 blocks, and validates the manufacturer UID/BCC.
 Each sector gets a bounded reset/reselect/authentication retry, but any sector
 that cannot be read completely still aborts the preflight. The UID-write test
@@ -158,7 +161,7 @@ with UID `61A8CC3F` authenticated all 16 sectors and read all 64 blocks using
 the default `FFFFFFFFFFFF` Key A. A guarded test changed the UID to
 `61A8CC3E` and issued the restoration to `61A8CC3F`. The PN5180 missed the
 immediate restore-verification exchange, but a fresh explicit scan followed
-by another complete preflight verified the original UID/BCC and all 16
+by another complete CUID validation verified the original UID/BCC and all 16
 sectors. A repeat test with a non-metallic spacer between the tag and antenna
 completed cleanly end to end: temporary UID `61A8CC3E` was verified, original
 UID `61A8CC3F` was restored and verified, and an independent final preflight

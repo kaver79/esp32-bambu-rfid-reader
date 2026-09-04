@@ -42,7 +42,7 @@ static uint8_t libraryDump[DUMP_SIZE];
 static bool libraryDumpLoaded = false;
 static String libraryDumpName;
 
-enum class JobType { Idle, Scan, Write, CuidPreflight, CuidTest };
+enum class JobType { Idle, Scan, Write, TagPreflight, CuidTest };
 static JobType jobType = JobType::Idle;
 static uint32_t jobDeadline = 0;
 static String jobMessage = "Idle";
@@ -463,8 +463,10 @@ static bool inspectBlankTarget(const uint8_t uid[4]) {
 #if RFID_READER == READER_PN5180
   if (authenticatedSectors == 16) {
     jobMessage = "PN5180 full preflight retained for the same UID; write test will repeat it";
+  } else if (authenticatedSectors == 1 && writableCandidateFactoryUid) {
+    jobMessage = "Possible unused FUID AA55C396; run full read-only validation";
   } else if (authenticatedSectors == 1) {
-    jobMessage = "PN5180 block 0 accepts the factory key; full write eligibility is not established";
+    jobMessage = "PN5180 block 0 accepts the factory key; full tag validation is required";
   } else {
     jobMessage = "PN5180 block 0 rejected the factory key; write eligibility is not established";
   }
@@ -1109,7 +1111,7 @@ static bool writeExactFuid(String &error) {
   return pn5180WriteFinalFuid(sourceKeys, error);
 }
 
-static bool runCuidReadOnlyPreflight(String &error) {
+static bool runTagReadOnlyPreflight(String &error) {
   static uint8_t defaultKeys[16][6];
   memset(defaultKeys, 0xff, sizeof(defaultKeys));
   memset(blockValid, 0, sizeof(blockValid));
@@ -1195,7 +1197,7 @@ static bool runCuidReadOnlyPreflight(String &error) {
 static bool writeCuidEngineeringTest(String &error) {
   static const uint8_t defaultKey[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
   jobMessage = "Repeating full read-only preflight immediately before UID test…";
-  if (!runCuidReadOnlyPreflight(error)) return false;
+  if (!runTagReadOnlyPreflight(error)) return false;
   uint8_t selectedUid[4] = {};
   if (!pn5180PrepareTag(cuidTestExpectedUid, selectedUid)) {
     error = "PN5180 could not reselect the expected CUID test tag";
@@ -1272,17 +1274,17 @@ static bool writeCuidEngineeringTest(String &error) {
 }
 #else
 static bool writeExactFuid(String &error) {
-  error = "FUID writing is implemented only for the PN532 build"; return false;
+  error = "FUID writing is implemented only for the PN5180 build"; return false;
 }
 static bool writeCuidEngineeringTest(String &error) {
-  error = "CUID engineering writes are implemented only for the PN532 build";
+  error = "CUID engineering writes are implemented only for the PN5180 build";
   return false;
 }
 #endif
 
 #if RFID_READER != READER_PN5180
-static bool runCuidReadOnlyPreflight(String &error) {
-  error = "Full CUID preflight is implemented only for the PN5180 build";
+static bool runTagReadOnlyPreflight(String &error) {
+  error = "Full tag preflight is implemented only for the PN5180 build";
   return false;
 }
 #endif
@@ -1346,25 +1348,45 @@ static void handleStatus() {
   if (writableCandidateAvailable) {
     const bool likelyCuid = !writableCandidateFactoryUid &&
                             writableCandidateSectors == 16;
+    const bool validationRequired = writableCandidateFactoryUid &&
+                                    writableCandidateSectors > 0 &&
+                                    !writableCandidateReady;
+    const bool cuidValidationRequired = !writableCandidateFactoryUid &&
+                                        writableCandidateSectors > 0 &&
+                                        !likelyCuid;
     json += ",\"writableTarget\":{\"uid\":\"" + hexString(writableCandidateUid, 4) + "\"";
     json += ",\"ready\":" + String(writableCandidateReady ? "true" : "false");
     json += ",\"factoryUidMatches\":" +
             String(writableCandidateFactoryUid ? "true" : "false");
     json += ",\"likelyCuid\":" + String(likelyCuid ? "true" : "false");
     json += ",\"likelyRewritable\":" + String(likelyCuid ? "true" : "false");
-    json += ",\"bambuCompatible\":false";
+    json += ",\"validationRequired\":" +
+            String(validationRequired ? "true" : "false");
+    json += ",\"cuidValidationRequired\":" +
+            String(cuidValidationRequired ? "true" : "false");
+    json += ",\"bambuState\":\"" + String(writableCandidateFactoryUid
+        ? "blank-unprogrammed"
+        : (likelyCuid ? "unsupported-cuid" : "unknown")) + "\"";
     json += ",\"authenticatedSectors\":" + String(writableCandidateSectors);
     json += ",\"expectedSectors\":16";
     json += ",\"classification\":\"" + String(writableCandidateReady
         ? "Unused FUID candidate"
-        : (likelyCuid
-            ? "Likely CUID / rewritable tag"
-            : "Unsupported or locked MIFARE Classic tag")) + "\"";
+        : (validationRequired
+            ? "Possible unused FUID — validation required"
+            : (cuidValidationRequired
+                ? "Possible rewritable tag — validation required"
+                : (likelyCuid
+                    ? "Likely CUID / rewritable tag"
+                    : "Unsupported or locked MIFARE Classic tag")))) + "\"";
     json += ",\"status\":\"" + String(writableCandidateReady
-        ? "Eligible candidate for the guarded FUID clone flow"
-        : (likelyCuid
-            ? "Rewritable, but not compatible with stock Bambu AMS/AMS Lite"
-            : "Not eligible for the FUID write flow")) + "\"}";
+        ? "Eligible for exact FUID cloning"
+        : (validationRequired
+            ? "Run full read-only FUID validation"
+            : (cuidValidationRequired
+                ? "Run full read-only CUID validation"
+                : (likelyCuid
+                    ? "Rewritable, but not compatible with stock Bambu AMS/AMS Lite"
+                    : "Not eligible for the FUID write flow")))) + "\"}";
   }
   json += "}";
   sendJson(200, json);
@@ -1436,21 +1458,21 @@ static void configureWebServer() {
     jobSucceeded = false;
     sendJson(202, "{\"ok\":true}");
   });
-  server.on("/api/cuid-preflight", HTTP_POST, []() {
+  server.on("/api/tag-preflight", HTTP_POST, []() {
     if (jobType != JobType::Idle) {
       sendJson(409, "{\"message\":\"Another reader operation is active\"}"); return;
     }
 #if RFID_READER != READER_PN5180
-    sendJson(400, "{\"message\":\"Full CUID preflight is available only in the PN5180 build\"}");
+    sendJson(400, "{\"message\":\"Full read-only tag preflight is available only in the PN5180 build\"}");
     return;
 #else
     if (!writableCandidateAvailable || !autoTagLatched ||
         memcmp(writableCandidateUid, autoTagUid, sizeof(autoTagUid)) != 0) {
-      sendJson(409, "{\"message\":\"Present one detected four-byte test tag first\"}");
+      sendJson(409, "{\"message\":\"Present one detected four-byte candidate tag first\"}");
       return;
     }
     memcpy(cuidTestExpectedUid, writableCandidateUid, sizeof(cuidTestExpectedUid));
-    jobType = JobType::CuidPreflight;
+    jobType = JobType::TagPreflight;
     jobDeadline = millis() + 60000;
     jobMessage = "Full PN5180 read-only preflight queued; keep exactly one tag still";
     jobSucceeded = false;
@@ -1665,9 +1687,9 @@ void loop() {
     jobMessage = success ? "Write and full 1 KiB verification completed" : error;
     jobType = JobType::Idle;
   }
-  if (jobType == JobType::CuidPreflight) {
+  if (jobType == JobType::TagPreflight) {
     String error;
-    const bool success = runCuidReadOnlyPreflight(error);
+    const bool success = runTagReadOnlyPreflight(error);
     jobSucceeded = success;
     if (!success) jobMessage = error;
     jobType = JobType::Idle;
