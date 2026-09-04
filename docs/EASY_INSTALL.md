@@ -120,7 +120,7 @@ On every boot the device starts a recoverable setup access point.
 1. Connect a phone or computer to `Bambu-RFID-XXXXXX`.
 2. Enter the default password `bambu-rfid`.
 3. Open `http://192.168.4.1/`.
-4. Expand **Network setup**, enter the home Wi-Fi details, and save them.
+4. Expand **Network settings**, enter the home Wi-Fi details, and save them.
 5. Reconnect the phone/computer to the home network.
 6. Open `http://bambu-rfid.local/` or use the station IP printed in the serial
    monitor.
@@ -186,6 +186,10 @@ The first fast inspection checks only block 0. It should show:
 - Bambu write eligibility: `Full validation required`.
 - The badge says **Tag present**, not **Last scan**.
 
+Seeing `1 / 16` at this stage is expected. It describes the one sector checked
+by the quick scan; it is not a failed 16-sector test and does not mean the FUID
+is incompatible.
+
 Now select **Validate FUID (read-only)** and keep the tag still. After the
 complete preflight succeeds, the inspection must show `16 / 16`, **Unused FUID
 candidate**, and **Eligible for exact FUID cloning**. A blank FUID is not yet a
@@ -196,6 +200,20 @@ Stop if any value differs. A UID that merely looks writable is not enough. The
 separately displayed **Validate CUID (read-only)** and `TEST UID` controls are
 an engineering test for non-FUID CUID tags; they do not make a CUID suitable
 for a Bambu clone.
+
+### Quick reference for tag-inspection states
+
+| What the UI shows | Interpretation | Next step |
+|---|---|---|
+| `AA55C396`, `1 / 16`, **Full validation required** | Expected quick result for a possible unused FUID | Select **Validate FUID (read-only)** |
+| `AA55C396`, `16 / 16`, **Eligible for exact FUID cloning** | Full read-only FUID preflight passed | Load/check the exact dump, then follow Step 8 |
+| Non-factory UID, **Possible rewritable tag** | Only block 0 passed; tag generation is unknown | Do not use it as an FUID; CUID validation is optional |
+| **Likely CUID / rewritable tag** | All 16 sectors passed under the factory key, but UID is not the FUID factory UID | Keep it out of the Bambu clone flow |
+| **Unsupported or locked** | Factory authentication failed or the tag is not an accepted candidate | Check placement once, then reject it if the result repeats |
+
+The amber **Unused FUID validation** panel and red **Reversible CUID UID
+engineering test** panel are mutually exclusive. If the wrong panel appears,
+remove every tag, wait for **Last scan**, and present exactly one tag again.
 
 ## Step 8: Program the FUID
 
@@ -292,6 +310,17 @@ error, and diagnose the readback mismatch first.
 - Try a 5–10 mm non-metallic spacer between small tags and the board antenna.
 - Keep one tag in the field and remove nearby cards, key fobs, or spools.
 - Use a stable USB supply and avoid loose breadboard connections.
+
+### An unused FUID initially shows only 1 / 16
+
+This is the expected quick block-0 probe. Confirm that the UID is exactly
+`AA55C396`, then select **Validate FUID (read-only)**. Do not proceed to writing
+unless the completed validation changes the result to `16 / 16` and **Eligible
+for exact FUID cloning**.
+
+If the validation button is disabled, confirm **Tag present** is shown, wait
+for any active reader job to finish, and keep the tag centered. If the button
+is absent, the detected UID does not match the supported FUID factory UID.
 
 ### Library does not load
 

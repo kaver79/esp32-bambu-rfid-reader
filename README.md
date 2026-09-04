@@ -32,9 +32,10 @@ The web UI provides:
   official material and color names, filament codes, availability, and a
   direct source link;
 - download of a complete locally read 1 KiB dump;
-- read-only inspection of blank FUID candidates: the UI reports eligibility
-  only when the factory UID is `AA55C396` and all 16 sectors authenticate with
-  the default factory key;
+- two-stage read-only inspection of blank FUID candidates: a fast block-0
+  probe identifies factory UID `AA55C396` as requiring validation, and the
+  dedicated **Validate FUID (read-only)** action reports eligibility only
+  after all 16 sectors authenticate with the default factory key;
 - detection details for other four-byte UID tags, including their UID and
   default-key sector count, while keeping them ineligible for writing;
 - safe detection and UI reporting for ISO14443A tags with non-four-byte UIDs,
@@ -68,12 +69,32 @@ recovery. Before retrying block 0, the firmware authenticates all sixteen
 sectors with the selected dump's derived keys and verifies every readable byte
 outside manufacturer block 0. Any mismatch aborts recovery without writing.
 
-When such a factory UID is scanned, the firmware performs a read-only
-eligibility inspection and shows how many of the 16 sectors accept the default
-factory key. A `16/16` result means only that the tag is a candidate for the
-guarded FUID flow. It does not prove that the chip supports the required
-magic block-0 behavior, that a write will succeed, or that an AMS/AMS Lite will
-accept the result.
+The normal PN5180 scan is intentionally fast and probes only block 0. For an
+`AA55C396` tag, the initial `1/16` display therefore means **Possible unused
+FUID — validation required**, not failure or incompatibility. Press **Validate
+FUID (read-only)** while keeping the same tag still. Only a successful 64-block
+read with `16/16` default-key sectors changes the state to **Unused FUID
+candidate** and **Eligible for exact FUID cloning**.
+
+These UI states have distinct meanings:
+
+| UID and read result | UI meaning | FUID clone action |
+|---|---|---|
+| `AA55C396`, quick `1/16` probe | Possible unused FUID; full validation required | Run **Validate FUID (read-only)** |
+| `AA55C396`, validated `16/16` | Unused FUID candidate | Eligible only when a signed dump is also loaded and the tag remains present |
+| Non-factory UID, quick `1/16` probe | Possible rewritable tag; type not established | Optional **Validate CUID (read-only)** engineering check |
+| Non-factory UID, validated `16/16` | Likely CUID/rewritable | Never eligible for the Bambu clone flow |
+| Factory authentication fails | Unsupported, locked, or unstable read | Do not write |
+
+A blank validated FUID is shown as **Blank tag — not a Bambu clone yet**. It is
+not meaningful to call it AMS-compatible or incompatible before programming.
+The application claims a completed clone only after the exact signed dump is
+written, the new UID is reselected, and the complete readback matches.
+
+A `16/16` result still means only that the tag is a candidate for the guarded
+FUID flow. It does not prove that the chip supports the required magic block-0
+behavior, that a write will succeed, or that an AMS/AMS Lite will accept the
+result.
 
 Other factory-keyed MIFARE Classic tags are still shown in the UI so an
 unsupported card is not mistaken for an antenna failure. A non-FUID UID with
