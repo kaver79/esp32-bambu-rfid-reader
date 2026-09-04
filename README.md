@@ -5,6 +5,11 @@ reader and research workbench. It derives Bambu's public per-sector keys,
 decodes genuine filament tags, and browses exact signed dumps from the
 [Bambu Lab RFID Library](https://github.com/queengooborg/Bambu-Lab-RFID-Library).
 
+New build? Follow the separate
+**[Easy Install and FUID Tag Programming Guide](docs/EASY_INSTALL.md)** for the
+complete PN5180 wiring, installation, validation, programming, recovery, and
+AMS Lite setup flow.
+
 ## Project status
 
 PN5180 is the primary hardware target. UID detection, CUID full reads, the
