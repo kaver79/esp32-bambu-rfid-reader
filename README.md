@@ -33,7 +33,7 @@ The web UI provides:
 - detection details for other four-byte UID tags, including their UID and
   default-key sector count, while keeping them ineligible for writing;
 - safe detection and UI reporting for ISO14443A tags with non-four-byte UIDs,
-  without passing a too-small UID buffer to the PN532 library;
+  without passing a too-small UID buffer to the reader library;
 - live material/color/UID navigation of the GitHub tag library;
 - ESP32-side HTTPS download and validation of selected 1,024-byte dumps;
 - guarded PN5180 FUID cloning with block 0 last and complete readback;
@@ -95,40 +95,42 @@ for those tags. CUID/Gen2 and Gen1 tags remain unsupported for printer use
 because the AMS rejects or may damage them; the isolated UID capability test
 does not change that compatibility status.
 
-## Wiring: PN532 in SPI mode
+## Primary hardware: PN5180
 
-Set the PN532 module's jumpers or DIP switches to **SPI mode** first. Switch
-positions vary by board.
+PN5180 is the default, fully tested target and the only target that currently
+supports the guarded FUID clone workflow.
 
-| PN532 | ESP32 DevKit |
+| PN5180 | ESP32 DevKit |
 |---|---:|
-| 3.3V | 3.3V |
+| 5V | 5V / VIN (RF/output-stage supply) |
+| 3.3V / PVDD | 3V3 (logic supply/reference) |
 | GND | GND |
-| SCK | GPIO 18 |
-| MISO | GPIO 19 |
 | MOSI | GPIO 23 |
-| SS / SSEL / CS | GPIO 5 |
+| MISO | GPIO 19 |
+| SCK | GPIO 18 |
+| NSS / CS | GPIO 5 |
+| BUSY | GPIO 4 |
+| RST | GPIO 2 |
 
-Use 3.3 V logic and keep one label centered over the antenna. Pin definitions
-are in `include/config.h`.
+The commonly used PN5180 carrier requires both power rails: connect `5V` to
+ESP32 `5V`/`VIN`, connect `3.3V`/`PVDD` to ESP32 `3V3`, and use a common ground.
+SPI and control signals are 3.3 V logic. Check the exact module labels before
+powering it; never connect 5 V to `PVDD` or an ESP32 GPIO. GPIO 2 is also an
+ESP32 boot strap pin, so disconnect or move PN5180 RST if normal boot fails.
 
-Very small or bare sticker/coin antennas may detune when pressed directly
-against the PN532 board. If a known 13.56 MHz ISO14443A tag produces no UID at
-all, try a non-metallic 5–10 mm spacer and rotate the tag slowly. The PN532
-firmware cannot detect 125 kHz LF tags, UHF tags, or non-ISO14443A NFC protocols.
-
-## Build and upload
+Build and upload the primary target:
 
 ```sh
 cd esp32-bambu-rfid-reader
-pio run -e pn532 -t upload
+pio run -e pn5180 -t upload
 pio device monitor -b 115200
 ```
 
-The optional `pn532` and `rc522` environments remain available for compatibility.
-PN5180 is the default build and the active hardware-test target.
+Pin definitions are maintained in `include/config.h`. The optional `pn532` and
+`rc522` environments remain available only for compatibility and read-focused
+use.
 
-### PN5180 primary target
+## PN5180 behavior and validated results
 
 The `pn5180` environment provides startup diagnostics, ISO14443A UID detection,
 a bounded read-only block-0 default-key probe, the guarded reversible CUID UID
@@ -188,25 +190,6 @@ loss can still leave a test tag with the temporary UID, so use only a
 replaceable sacrificial tag and keep it centered until final restoration is
 reported.
 
-| PN5180 | ESP32 DevKit |
-|---|---:|
-| 5V | 5V / VIN (RF/output-stage supply) |
-| 3.3V / PVDD | 3V3 (logic supply/reference) |
-| GND | GND |
-| MOSI | GPIO 23 |
-| MISO | GPIO 19 |
-| SCK | GPIO 18 |
-| NSS / CS | GPIO 5 |
-| BUSY | GPIO 4 |
-| RST | GPIO 2 |
-
-Build and upload this target with:
-
-```sh
-pio run -e pn5180 -t upload
-pio device monitor -b 115200
-```
-
 The tested USB-UART adapter held the ESP32 in reset when its serial port was
 closed. `platformio.ini` therefore opens the monitor with DTR and RTS inactive.
 If the web UI disappears immediately when a monitor closes, leave the monitor
@@ -214,15 +197,44 @@ open or power the ESP32 through a charge-only/external supply that does not
 connect USB reset-control signals. This is an adapter/auto-reset behavior, not
 a PN5180 RF failure.
 
-The commonly used PN5180 carrier has separate `5V` and `3.3V`/`PVDD` pins and
-requires both: connect its `5V` pin to ESP32 `5V`/`VIN`, its `3.3V`/`PVDD` pin
-to ESP32 `3V3`, and keep a common ground. The SPI and control signals remain
-3.3 V logic. Supplying only the 3.3 V rail can allow UID reads while causing
-intermittent authentication or block access. Check the exact board schematic
-and pin labels before applying 5 V; never connect 5 V to `PVDD` or an ESP32
-GPIO.
-GPIO 2 is also an ESP32 boot strap pin; disconnect or move PN5180 RST if the
-ESP32 no longer enters its normal boot mode.
+Supplying only the PN5180's 3.3 V rail can allow UID reads while causing
+intermittent authentication or block access. If UID detection works but full
+reads do not, verify both power rails before changing software.
+
+## Optional PN532 compatibility
+
+PN532 remains available for read-focused compatibility, but it is not the
+primary target and does not provide the hardware-validated FUID workflow.
+Set the module's jumpers or DIP switches to **SPI mode** first; positions vary
+by board.
+
+| PN532 | ESP32 DevKit |
+|---|---:|
+| 3.3V | 3.3V |
+| GND | GND |
+| SCK | GPIO 18 |
+| MISO | GPIO 19 |
+| MOSI | GPIO 23 |
+| SS / SSEL / CS | GPIO 5 |
+
+Build it explicitly with:
+
+```sh
+pio run -e pn532 -t upload
+```
+
+Very small sticker or coin antennas may detune when pressed directly against
+the PN532 board. If a known 13.56 MHz ISO14443A tag produces no UID, try a
+non-metallic 5–10 mm spacer and rotate the tag slowly. PN532 cannot detect
+125 kHz LF tags, UHF tags, or non-ISO14443A NFC protocols.
+
+## Optional RC522 compatibility
+
+The RC522 target is retained for read-focused compatibility:
+
+```sh
+pio run -e rc522 -t upload
+```
 
 ## Firmware updates over Wi-Fi
 
@@ -236,12 +248,12 @@ untrusted network.
 1. Build the firmware without uploading it:
 
    ```sh
-   pio run -e pn532
+   pio run -e pn5180
    ```
 
 2. Open `http://bambu-rfid.local/`.
 3. In **Firmware update over Wi-Fi**, choose
-   `.pio/build/pn532/firmware.bin`.
+   `.pio/build/pn5180/firmware.bin`.
 4. Enter the OTA password and confirm the update.
 5. Keep the ESP32 powered until it validates the image and restarts.
 
@@ -250,15 +262,16 @@ ESP32 Update API to validate the uploaded application image before rebooting.
 
 ### PlatformIO / ArduinoOTA
 
-The `pn532-ota` environment targets `bambu-rfid.local`:
+The primary `pn5180-ota` environment targets `bambu-rfid.local`:
 
 ```sh
-pio run -e pn532-ota -t upload
+pio run -e pn5180-ota -t upload
 ```
 
 If mDNS is unavailable, replace `bambu-rfid.local` in `platformio.ini` with the
 station IP shown in the web UI. Keep the `--auth` value in `platformio.ini`
 synchronized with `RFID_OTA_PASSWORD` if the default is changed.
+The optional `pn532-ota` environment is retained for PN532 compatibility.
 
 ## First connection
 
@@ -276,18 +289,18 @@ The browser uses GitHub's public Contents API to navigate the catalog, and the
 ESP32 downloads the selected binary from GitHub. GitHub may rate-limit heavy
 anonymous browsing. No GitHub token is stored on the device.
 
-## Read-only workflow
+## Reading a tag
 
 1. Open the web UI and leave **Auto-scan** enabled.
-2. Keep the spool face flat over the PN532 and rotate it slowly as indicated.
+2. Keep the spool face flat over the PN5180 and rotate it slowly as indicated.
 3. Stop when the UI reports that a tag was detected.
 4. Review the decoded tag and GitHub library information.
 5. Download the complete 1 KiB dump if needed.
 6. Remove the spool; the UI keeps the result clearly marked as **Last scan**.
 
-Writing RFID tags is still under development and can permanently consume or
-lock a tag. There is no warranty that a marketplace product matches its
-advertised chip generation.
+Writing remains irreversible and is enabled only for the guarded, validated
+PN5180 FUID workflow described above. There is no warranty that a marketplace
+product matches its advertised chip generation.
 
 ## Credits
 
@@ -296,12 +309,12 @@ advertised chip generation.
 - [Bambu Lab RFID Library](https://github.com/queengooborg/Bambu-Lab-RFID-Library)
   and its contributors for collecting and organizing community tag dumps and
   filament metadata.
-- [Adafruit PN532](https://github.com/adafruit/Adafruit-PN532) for the PN532
-  Arduino library used by the primary reader build.
-- [MFRC522](https://github.com/miguelbalboa/rfid) for optional RC522 read-only
-  compatibility.
 - [Elechouse PN5180 Library](https://github.com/wilson-elechouse/PN5180_ELECHOUSE)
   for bounded BUSY/reset timeouts, ISO14443A, and native MIFARE Classic
-  authentication and block access in the PN5180 target.
+  authentication and block access in the primary PN5180 target.
+- [Adafruit PN532](https://github.com/adafruit/Adafruit-PN532) for the optional
+  PN532 compatibility build.
+- [MFRC522](https://github.com/miguelbalboa/rfid) for optional RC522 read-only
+  compatibility.
 - The Arduino, Espressif, and PlatformIO communities for the ESP32 framework,
   networking, OTA, and build tooling used by this project.
