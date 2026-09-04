@@ -1,10 +1,11 @@
 #pragma once
 
-// Select exactly one reader. PN532 is the default for this project.
+// Select exactly one reader. PN5180 is the primary tested target.
 #define READER_RC522 1
 #define READER_PN532 2
+#define READER_PN5180 3
 #ifndef RFID_READER
-#define RFID_READER READER_PN532
+#define RFID_READER READER_PN5180
 #endif
 
 // Shared VSPI pins on a classic ESP32 DevKit/WROOM board.
@@ -15,6 +16,12 @@
 // RC522: SDA/SS/CS and RST. PN532 SPI: SS/CS only.
 #define RFID_SS_PIN 5
 #define RFID_RST_PIN 22
+
+// Experimental PN5180 SPI control pins. GPIO2 is a boot strap pin on classic
+// ESP32 boards; if booting becomes unreliable, verify that the module does not
+// hold RST high or otherwise drive GPIO2 during ESP32 reset.
+#define PN5180_BUSY_PIN 4
+#define PN5180_RST_PIN 2
 
 // The device always starts a protected setup/access-point so it remains
 // reachable even when the configured Wi-Fi network is unavailable.
